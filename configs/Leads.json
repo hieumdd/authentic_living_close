@@ -1,0 +1,121 @@
+{
+    "schema": [
+        {
+            "name": "id",
+            "type": "STRING"
+        },
+        {
+            "name": "date_updated",
+            "type": "TIMESTAMP"
+        },
+        {
+            "name": "display_name",
+            "type": "STRING"
+        },
+        {
+            "name": "updated_by",
+            "type": "STRING"
+        },
+        {
+            "name": "status_id",
+            "type": "STRING"
+        },
+        {
+            "name": "created_by",
+            "type": "STRING"
+        },
+        {
+            "name": "custom_lead_owner",
+            "type": "STRING"
+        },
+        {
+            "name": "organization_id",
+            "type": "STRING"
+        },
+        {
+            "name": "date_created",
+            "type": "TIMESTAMP"
+        },
+        {
+            "name": "contacts",
+            "type": "record",
+            "mode": "repeated",
+            "fields": [
+                {
+                    "name": "phones",
+                    "type": "record",
+                    "mode": "repeated",
+                    "fields": [
+                        {
+                            "name": "phone_formatted",
+                            "type": "STRING"
+                        },
+                        {
+                            "name": "phone",
+                            "type": "STRING"
+                        },
+                        {
+                            "name": "type",
+                            "type": "STRING"
+                        },
+                        {
+                            "name": "country",
+                            "type": "STRING"
+                        }
+                    ]
+                },
+                {
+                    "name": "name",
+                    "type": "STRING"
+                },
+                {
+                    "name": "updated_by",
+                    "type": "STRING"
+                },
+                {
+                    "name": "emails",
+                    "type": "record",
+                    "mode": "repeated",
+                    "fields": [
+                        {
+                            "name": "type",
+                            "type": "STRING"
+                        },
+                        {
+                            "name": "email",
+                            "type": "STRING"
+                        }
+                    ]
+                },
+                {
+                    "name": "date_updated",
+                    "type": "TIMESTAMP"
+                },
+                {
+                    "name": "display_name",
+                    "type": "STRING"
+                },
+                {
+                    "name": "date_created",
+                    "type": "TIMESTAMP"
+                },
+                {
+                    "name": "lead_id",
+                    "type": "STRING"
+                },
+                {
+                    "name": "created_by",
+                    "type": "STRING"
+                },
+                {
+                    "name": "title",
+                    "type": "STRING"
+                },
+                {
+                    "name": "id",
+                    "type": "STRING"
+                }
+            ]
+        }
+    ]
+}
