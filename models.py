@@ -19,9 +19,11 @@ NOW = datetime.utcnow()
 DATE_FORMAT = "%Y-%m-%d"
 
 
-def get_time_range(model, _start, _end):
-    if _start and _end:
-        start, end = [datetime.strptime(i, DATE_FORMAT) for i in [_start, _end]]
+def get_time_range(model):
+    if model.start and model.end:
+        start, end = [
+            datetime.strptime(i, DATE_FORMAT) for i in [model.start, model.end]
+        ]
     else:
         query = f"""
         SELECT MAX({model.keys['incre_key']}) AS max_incre
@@ -66,15 +68,15 @@ class SimpleGetter(Getter):
 class AsyncGetter(Getter):
     def __init__(self, model):
         super().__init__(model)
-        self.start, self.end = model.start, model.end
-        self.params = model.params
+        self.start, self.end = get_time_range(model)
+        self._params_builder = model._params_builder
 
     def get(self):
         return asyncio.run(self._get_async())
 
     def _get_params(self, skip=0):
         return {
-            **self.params,
+            **self._params_builder(self.start, self.end),
             "_limit": LIMIT,
             "_skip": skip,
         }
@@ -112,16 +114,17 @@ class AsyncGetter(Getter):
 class Close(metaclass=ABCMeta):
     @staticmethod
     def factory(table, start, end):
+        args = (start, end)
         if table == "Leads":
-            return Leads(start, end)
+            return Leads(*args)
         elif table == "Opportunities":
-            return Opportunities(start, end)
+            return Opportunities(*args)
         elif table == "CustomActivities":
-            return CustomActivities()
+            return CustomActivities(*args)
         elif table == "Users":
-            return Users()
+            return Users(*args)
         elif table == "CustomFields":
-            return CustomFields()
+            return CustomFields(*args)
         else:
             raise NotImplementedError(table)
 
@@ -129,6 +132,30 @@ class Close(metaclass=ABCMeta):
     @abstractmethod
     def endpoint(self):
         pass
+
+    @property
+    @abstractmethod
+    def table(self):
+        pass
+
+    @property
+    @abstractmethod
+    def getter(self):
+        pass
+
+    @property
+    @abstractmethod
+    def keys(self):
+        pass
+
+    @property
+    @abstractmethod
+    def schema(self):
+        pass
+
+    def __init__(self, start, end):
+        self.start, self.end = start, end
+        self._getter = self.getter(self)
 
     @abstractmethod
     def transform(self, rows):
@@ -159,14 +186,14 @@ class Close(metaclass=ABCMeta):
         BQ_CLIENT.query(query).result()
 
     def run(self):
-        rows = self.getter.get()
+        rows = self._getter.get()
         response = {
             "table": self.table,
             "num_processed": len(rows),
         }
-        if getattr(self.getter, "start", None) and getattr(self.getter, "end", None):
-            response["start"] = self.getter.start
-            response["end"] = self.getter.end
+        if getattr(self._getter, "start", None) and getattr(self._getter, "end", None):
+            response["start"] = self._getter.start
+            response["end"] = self._getter.end
         if len(rows):
             rows = self.transform(rows)
             loads = self._load(rows)
@@ -178,6 +205,7 @@ class Close(metaclass=ABCMeta):
 class Leads(Close):
     endpoint = "lead"
     table = "Leads"
+    getter = AsyncGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
@@ -230,16 +258,12 @@ class Leads(Close):
         },
     ]
 
-    @property
-    def params(self):
-        start, end = [i.strftime(DATE_FORMAT) for i in [self.start, self.end]]
+    @staticmethod
+    def _params_builder(start, end):
+        start, end = [i.strftime(DATE_FORMAT) for i in [start, end]]
         return {
             "query": f"date_updated > {start} date_updated < {end}",
         }
-
-    def __init__(self, start, end):
-        self.start, self.end = self.get_time_range(self, start, end)
-        self.getter = AsyncGetter(self)
 
     def transform(self, rows):
         rows = [
@@ -299,8 +323,9 @@ class Leads(Close):
 class CustomActivities(Close):
     endpoint = "activity/custom"
     table = "CustomActivities"
+    getter = AsyncGetter
     keys = {
-        "p_key": ["lead_id"],
+        "p_key": ["id"],
         "incre_key": "date_created",
     }
     schema = [
@@ -323,8 +348,12 @@ class CustomActivities(Close):
         },
     ]
 
-    def __init__(self):
-        self.getter = SimpleGetter(self)
+    @staticmethod
+    def _params_builder(start, end):
+        return {
+            "date_updated__gte": start.strftime(DATE_FORMAT),
+            "date_updated__lte": end.strftime(DATE_FORMAT),
+        }
 
     def transform(self, rows):
         return [
@@ -350,49 +379,10 @@ class CustomActivities(Close):
         ]
 
 
-class Users(Close):
-    endpoint = "user"
-    table = "Users"
-    keys = {
-        "p_key": ["id"],
-        "incre_key": "date_updated",
-    }
-    schema = [
-        {"name": "email", "type": "STRING"},
-        {"name": "id", "type": "STRING"},
-        {"name": "first_name", "type": "STRING"},
-        {"name": "last_name", "type": "STRING"},
-        {"name": "date_updated", "type": "TIMESTAMP"},
-        {"name": "last_used_timezone", "type": "STRING"},
-        {"name": "email_verified_at", "type": "TIMESTAMP"},
-        {"name": "date_created", "type": "TIMESTAMP"},
-        {"name": "image", "type": "STRING"},
-    ]
-
-    def __init__(self):
-        super().__init__()
-        self.getter = SimpleGetter(self)
-
-    def transform(self, rows):
-        return [
-            {
-                "email": row.get("email"),
-                "id": row.get("id"),
-                "first_name": row.get("first_name"),
-                "last_name": row.get("last_name"),
-                "date_updated": row.get("date_updated"),
-                "last_used_timezone": row.get("last_used_timezone"),
-                "email_verified_at": row.get("email_verified_at"),
-                "date_created": row.get("date_created"),
-                "image": row.get("image"),
-            }
-            for row in rows
-        ]
-
-
 class Opportunities(Close):
     endpoint = "opportunity"
     table = "Opportunities"
+    getter = AsyncGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
@@ -437,16 +427,12 @@ class Opportunities(Close):
         },
     ]
 
-    @property
-    def params(self):
+    @staticmethod
+    def _params_builder(start, end):
         return {
-            "date_updated__gte": self.start.strftime(DATE_FORMAT),
-            "date_updated__lte": self.end.strftime(DATE_FORMAT),
+            "date_updated__gte": start.strftime(DATE_FORMAT),
+            "date_updated__lte": end.strftime(DATE_FORMAT),
         }
-
-    def __init__(self, start, end):
-        self.start, self.end = get_time_range(self, start, end)
-        self.getter = AsyncGetter(self)
 
     def transform(self, rows):
         return [
@@ -493,6 +479,43 @@ class Opportunities(Close):
         ]
 
 
+class Users(Close):
+    endpoint = "user"
+    table = "Users"
+    getter = SimpleGetter
+    keys = {
+        "p_key": ["id"],
+        "incre_key": "date_updated",
+    }
+    schema = [
+        {"name": "email", "type": "STRING"},
+        {"name": "id", "type": "STRING"},
+        {"name": "first_name", "type": "STRING"},
+        {"name": "last_name", "type": "STRING"},
+        {"name": "date_updated", "type": "TIMESTAMP"},
+        {"name": "last_used_timezone", "type": "STRING"},
+        {"name": "email_verified_at", "type": "TIMESTAMP"},
+        {"name": "date_created", "type": "TIMESTAMP"},
+        {"name": "image", "type": "STRING"},
+    ]
+
+    def transform(self, rows):
+        return [
+            {
+                "email": row.get("email"),
+                "id": row.get("id"),
+                "first_name": row.get("first_name"),
+                "last_name": row.get("last_name"),
+                "date_updated": row.get("date_updated"),
+                "last_used_timezone": row.get("last_used_timezone"),
+                "email_verified_at": row.get("email_verified_at"),
+                "date_created": row.get("date_created"),
+                "image": row.get("image"),
+            }
+            for row in rows
+        ]
+
+
 class CustomFields(Close):
     endpoint = "custom_activity"
     table = "CustomFields"
@@ -522,9 +545,6 @@ class CustomFields(Close):
             ],
         },
     ]
-
-    def __init__(self):
-        self.getter = SimpleGetter(self)
 
     def transform(self, rows):
         return [
