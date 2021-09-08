@@ -19,6 +19,20 @@ NOW = datetime.utcnow()
 DATE_FORMAT = "%Y-%m-%d"
 
 
+def get_time_range(model, _start, _end):
+    if _start and _end:
+        start, end = [datetime.strptime(i, DATE_FORMAT) for i in [_start, _end]]
+    else:
+        query = f"""
+        SELECT MAX({model.keys['incre_key']}) AS max_incre
+        FROM {DATASET}.{model.table}"""
+        result = BQ_CLIENT.query(query).result()
+        max_incre = [dict(i.items()) for i in result][0]["max_incre"]
+        start = max_incre
+        end = NOW
+    return start, end
+
+
 class Getter(metaclass=ABCMeta):
     def __init__(self, model):
         self.endpoint = model.endpoint
@@ -53,14 +67,14 @@ class AsyncGetter(Getter):
     def __init__(self, model):
         super().__init__(model)
         self.start, self.end = model.start, model.end
+        self.params = model.params
 
     def get(self):
         return asyncio.run(self._get_async())
 
     def _get_params(self, skip=0):
-        start, end = [i.strftime(DATE_FORMAT) for i in [self.start, self.end]]
         return {
-            "query": f"date_updated > {start} date_updated < {end}",
+            **self.params,
             "_limit": LIMIT,
             "_skip": skip,
         }
@@ -98,12 +112,16 @@ class AsyncGetter(Getter):
 class Close(metaclass=ABCMeta):
     @staticmethod
     def factory(table, start, end):
-        if table == "Lead":
-            return Lead(start, end)
-        elif table == "CustomActivity":
-            return CustomActivity()
-        elif table == "User":
-            return User()
+        if table == "Leads":
+            return Leads(start, end)
+        elif table == "Opportunities":
+            return Opportunities(start, end)
+        elif table == "CustomActivities":
+            return CustomActivities()
+        elif table == "Users":
+            return Users()
+        else:
+            raise NotImplementedError(table)
 
     @property
     @abstractmethod
@@ -155,9 +173,9 @@ class Close(metaclass=ABCMeta):
         return response
 
 
-class Lead(Close):
+class Leads(Close):
     endpoint = "lead"
-    table = "Lead"
+    table = "Leads"
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
@@ -174,13 +192,13 @@ class Lead(Close):
         {"name": "date_created", "type": "TIMESTAMP"},
         {
             "name": "contacts",
-            "type": "record",
-            "mode": "repeated",
+            "type": "RECORD",
+            "mode": "REPEATED",
             "fields": [
                 {
                     "name": "phones",
                     "type": "record",
-                    "mode": "repeated",
+                    "mode": "REPEATED",
                     "fields": [
                         {"name": "phone_formatted", "type": "STRING"},
                         {"name": "phone", "type": "STRING"},
@@ -210,25 +228,18 @@ class Lead(Close):
         },
     ]
 
+    @property
+    def params(self):
+        start, end = [i.strftime(DATE_FORMAT) for i in [self.start, self.end]]
+        return {
+            "query": f"date_updated > {start} date_updated < {end}",
+        }
+
     def __init__(self, start, end):
-        self.start, self.end = self._get_time_range(start, end)
+        self.start, self.end = self.get_time_range(self, start, end)
         self.getter = AsyncGetter(self)
 
-    def _get_time_range(self, _start, _end):
-        if _start and _end:
-            start, end = [datetime.strptime(i, DATE_FORMAT) for i in [_start, _end]]
-        else:
-            query = f"""
-            SELECT MAX({self.keys['incre_key']}) AS max_incre
-            FROM {DATASET}.{self.table}"""
-            result = BQ_CLIENT.query(query).result()
-            max_incre = [dict(i.items()) for i in result][0]["max_incre"]
-            start = max_incre
-            end = NOW
-        return start, end
-
     def transform(self, rows):
-        rows
         rows = [
             {
                 "id": row["id"],
@@ -283,58 +294,79 @@ class Lead(Close):
         return rows
 
 
-class CustomActivity(Close):
+class CustomActivities(Close):
     endpoint = "activity/custom"
-    table = "new_close_activities"
+    table = "CustomActivities"
     keys = {
         "p_key": ["lead_id"],
-        "incre_key": "date_updated",
+        "incre_key": "date_created",
     }
-    with open("configs/CustomActivity.json") as f:
-        schema = json.load(f)["schema"]
+    schema = [
+        {"name": "id", "type": "STRING"},
+        {"name": "date_created", "type": "TIMESTAMP"},
+        {"name": "date_updated", "type": "TIMESTAMP"},
+        {"name": "lead_id", "type": "STRING"},
+        {"name": "user_id", "type": "STRING"},
+        {"name": "custom_activity_type_id", "type": "STRING"},
+        {"name": "_type", "type": "STRING"},
+        {"name": "status", "type": "STRING"},
+        {
+            "name": "custom_fields",
+            "type": "RECORD",
+            "mode": "REPEATED",
+            "fields": [
+                {"name": "key", "type": "STRING"},
+                {"name": "value", "type": "STRING"},
+            ],
+        },
+    ]
 
     def __init__(self):
         super().__init__()
         self.getter = SimpleGetter(self)
 
     def transform(self, rows):
-        rows
         return [
             {
-                "lead_id": json.dumps(row.get("lead_id")),
-                "date_updated": row.get("date_updated"),
-                "cash": json.dumps(
-                    row.get("custom.acf_uoVlV2xEOMqk95VN47QzUtIv0gjJ45q5yupojyxoncr")
-                ),
-                "date_closed": json.dumps(
-                    row.get("custom.acf_gTTx1MCvzyDGiCge4vIUYQIF8dkSYPqpmqbBsnbspic")
-                ),
-                "number_of_payments": json.dumps(
-                    row.get("custom.acf_BTO01d4tPWzPoPI2s5VFvum7RQ9HzlhOl43WEIbo2IN")
-                ),
-                "revenue": json.dumps(
-                    row.get("custom.acf_GQutYFmaWGyLQOuCZ6UnYEncMwnpp1vbGjiA0LX2sLj")
-                ),
-                "setter": json.dumps(
-                    row.get("custom.acf_v4B0U6VlVEJxMRBkrOFr2if5NQzNS3gEqyyckfUb9uX")
-                ),
-                "sold_by": json.dumps(
-                    row.get("custom.acf_A6lByV6qUWTnHY72u03XpOD7cV6eiY7I0mq3V4SeQan")
-                ),
+                "id": row["id"],
+                "date_created": row["date_created"],
+                "date_updated": row["date_updated"],
+                "lead_id": row.get("lead_id"),
+                "user_id": row.get("user_id"),
+                "custom_activity_type_id": row.get("custom_activity_type_id"),
+                "_type": row.get("_type"),
+                "status": row.get("status"),
+                "custom_fields": [
+                    {
+                        "key": key,
+                        "value": json.dumps(value),
+                    }
+                    for key, value in row.items()
+                    if "custom.cf" in key
+                ],
             }
             for row in rows
         ]
 
 
-class User(Close):
+class Users(Close):
     endpoint = "user"
-    table = "new_close_users"
+    table = "Users"
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
     }
-    with open("configs/User.json") as f:
-        schema = json.load(f)["schema"]
+    schema = [
+        {"name": "email", "type": "STRING"},
+        {"name": "id", "type": "STRING"},
+        {"name": "first_name", "type": "STRING"},
+        {"name": "last_name", "type": "STRING"},
+        {"name": "date_updated", "type": "TIMESTAMP"},
+        {"name": "last_used_timezone", "type": "STRING"},
+        {"name": "email_verified_at", "type": "TIMESTAMP"},
+        {"name": "date_created", "type": "TIMESTAMP"},
+        {"name": "image", "type": "STRING"},
+    ]
 
     def __init__(self):
         super().__init__()
@@ -355,3 +387,109 @@ class User(Close):
             }
             for row in rows
         ]
+
+
+class Opportunities(Close):
+    endpoint = "opportunity"
+    table = "Opportunities"
+    keys = {
+        "p_key": ["id"],
+        "incre_key": "date_updated",
+    }
+    schema = [
+        {"name": "id", "type": "STRING"},
+        {"name": "date_updated", "type": "TIMESTAMP"},
+        {"name": "updated_by", "type": "STRING"},
+        {"name": "created_by", "type": "STRING"},
+        {"name": "organization_id", "type": "STRING"},
+        {"name": "contact_name", "type": "STRING"},
+        {"name": "lead_id", "type": "STRING"},
+        {"name": "expected_value", "type": "NUMERIC"},
+        {"name": "status_display_name", "type": "STRING"},
+        {"name": "date_created", "type": "TIMESTAMP"},
+        {"name": "annualized_value", "type": "NUMERIC"},
+        {"name": "status_id", "type": "STRING"},
+        {"name": "status_type", "type": "STRING"},
+        {"name": "value", "type": "NUMERIC"},
+        {"name": "value_currency", "type": "STRING"},
+        {"name": "note", "type": "STRING"},
+        {"name": "value_period", "type": "STRING"},
+        {"name": "status_label", "type": "STRING"},
+        {"name": "lead_name", "type": "STRING"},
+        {"name": "created_by_name", "type": "STRING"},
+        {"name": "updated_by_name", "type": "STRING"},
+        {"name": "user_name", "type": "STRING"},
+        {"name": "annualized_expected_value", "type": "NUMERIC"},
+        {"name": "value_formatted", "type": "STRING"},
+        {"name": "user_id", "type": "STRING"},
+        {"name": "contact_id", "type": "STRING"},
+        {"name": "date_won", "type": "DATE"},
+        {"name": "date_lost", "type": "DATE"},
+        {
+            "name": "custom_fields",
+            "type": "RECORD",
+            "mode": "REPEATED",
+            "fields": [
+                {"name": "key", "type": "STRING"},
+                {"name": "value", "type": "STRING"},
+            ],
+        },
+    ]
+
+    @property
+    def params(self):
+        return {
+            "date_updated__gte": self.start.strftime(DATE_FORMAT),
+            "date_updated__lte": self.end.strftime(DATE_FORMAT),
+        }
+
+    def __init__(self, start, end):
+        self.start, self.end = get_time_range(self, start, end)
+        self.getter = AsyncGetter(self)
+
+    def transform(self, rows):
+        rows
+        rows = [
+            {
+                "id": row["id"],
+                "date_updated": row["date_updated"],
+                "updated_by": row.get("updated_by"),
+                "created_by": row.get("created_by"),
+                "organization_id": row.get("organization_id"),
+                "contact_name": row.get("contact_name"),
+                "lead_id": row.get("lead_id"),
+                "expected_value": row.get("expected_value"),
+                "status_display_name": row.get("status_display_name"),
+                "date_created": row.get("date_created"),
+                "annualized_value": row.get("annualized_value"),
+                "status_id": row.get("status_id"),
+                "status_type": row.get("status_type"),
+                "value": row.get("value"),
+                "value_currency": row.get("value_currency"),
+                "note": row.get("note"),
+                "value_period": row.get("value_period"),
+                "status_label": row.get("status_label"),
+                "lead_name": row.get("lead_name"),
+                "created_by_name": row.get("created_by_name"),
+                "updated_by_name": row.get("updated_by_name"),
+                "user_name": row.get("user_name"),
+                "annualized_expected_value": row.get("annualized_expected_value"),
+                "annualized_value": row.get("annualized_value"),
+                "value_formatted": row.get("value_formatted"),
+                "user_id": row.get("user_id"),
+                "contact_id": row.get("contact_id"),
+                "date_won": row.get("date_won"),
+                "date_lost": row.get("date_lost"),
+                "custom_fields": [
+                    {
+                        "key": key,
+                        "value": json.dumps(value),
+                    }
+                    for key, value in row.items()
+                    if "custom.cf" in key
+                ],
+            }
+            for row in rows
+        ]
+        
+        return rows

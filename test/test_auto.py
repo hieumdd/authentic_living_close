@@ -8,21 +8,21 @@ END = "2021-08-31"
 
 def test_leads_auto():
     data = {
-        "table": "Lead",
+        "table": "Leads",
     }
     process(data)
 
 
 def test_leads_manual():
     data = {
-        "table": "Lead",
+        "table": "Opportunities",
         "start": START,
         "end": END,
     }
     process(data)
 
 
-@pytest.mark.parametrize("table", ["CustomActivity", "User"])
+@pytest.mark.parametrize("table", ["CustomActivities", "Users"])
 def test_auto(table):
     data = {
         "table": table,
