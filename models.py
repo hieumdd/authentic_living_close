@@ -65,14 +65,11 @@ class SimpleGetter(Getter):
         return rows
 
 
-class AsyncGetter(Getter):
+class IncreGetter(Getter):
     def __init__(self, model):
         super().__init__(model)
         self.start, self.end = get_time_range(model)
         self._params_builder = model._params_builder
-
-    def get(self):
-        return asyncio.run(self._get_async())
 
     def _get_params(self, skip=0):
         return {
@@ -80,6 +77,11 @@ class AsyncGetter(Getter):
             "_limit": LIMIT,
             "_skip": skip,
         }
+
+
+class IncreAsyncGetter(IncreGetter):
+    def get(self):
+        return asyncio.run(self._get_async())
 
     async def _get_async(self):
         async with aiohttp.ClientSession() as session:
@@ -109,6 +111,27 @@ class AsyncGetter(Getter):
         ) as r:
             res = await r.json()
         return res["data"]
+
+
+class IncreSyncGetter(IncreGetter):
+    def get(self):
+        params = self._params_builder(self.start, self.end)
+        rows = []
+        with requests.Session() as session:
+            while True:
+                with session.get(
+                    self.url,
+                    params=params,
+                    auth=AUTH,
+                ) as r:
+                    res = r.json()
+                rows.extend(res["data"])
+                has_more = res.get("has_more")
+                if has_more:
+                    params["_skip"] += LIMIT
+                else:
+                    break
+        return rows
 
 
 class Close(metaclass=ABCMeta):
@@ -192,8 +215,8 @@ class Close(metaclass=ABCMeta):
             "num_processed": len(rows),
         }
         if getattr(self._getter, "start", None) and getattr(self._getter, "end", None):
-            response["start"] = self._getter.start
-            response["end"] = self._getter.end
+            response["start"] = self._getter.start.isoformat(timespec='seconds')
+            response["end"] = self._getter.end.isoformat(timespec='seconds')
         if len(rows):
             rows = self.transform(rows)
             loads = self._load(rows)
@@ -205,7 +228,7 @@ class Close(metaclass=ABCMeta):
 class Leads(Close):
     endpoint = "lead"
     table = "Leads"
-    getter = AsyncGetter
+    getter = IncreAsyncGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
@@ -323,7 +346,7 @@ class Leads(Close):
 class CustomActivities(Close):
     endpoint = "activity/custom"
     table = "CustomActivities"
-    getter = AsyncGetter
+    getter = IncreSyncGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_created",
@@ -351,8 +374,8 @@ class CustomActivities(Close):
     @staticmethod
     def _params_builder(start, end):
         return {
-            "date_updated__gte": start.strftime(DATE_FORMAT),
-            "date_updated__lte": end.strftime(DATE_FORMAT),
+            "date_created__gte": start.strftime(DATE_FORMAT),
+            "date_created__lte": end.strftime(DATE_FORMAT),
         }
 
     def transform(self, rows):
@@ -382,7 +405,7 @@ class CustomActivities(Close):
 class Opportunities(Close):
     endpoint = "opportunity"
     table = "Opportunities"
-    getter = AsyncGetter
+    getter = IncreAsyncGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",
@@ -414,8 +437,8 @@ class Opportunities(Close):
         {"name": "value_formatted", "type": "STRING"},
         {"name": "user_id", "type": "STRING"},
         {"name": "contact_id", "type": "STRING"},
-        {"name": "date_won", "type": "DATE"},
-        {"name": "date_lost", "type": "DATE"},
+        {"name": "date_won", "type": "STRING"},
+        {"name": "date_lost", "type": "STRING"},
         {
             "name": "custom_fields",
             "type": "RECORD",
@@ -519,6 +542,7 @@ class Users(Close):
 class CustomFields(Close):
     endpoint = "custom_activity"
     table = "CustomFields"
+    getter = SimpleGetter
     keys = {
         "p_key": ["id"],
         "incre_key": "date_updated",

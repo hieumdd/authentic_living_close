@@ -5,26 +5,47 @@ from .utils import process
 START = "2021-08-01"
 END = "2021-08-31"
 
-
-def test_leads_auto():
-    data = {
-        "table": "Leads",
-    }
-    process(data)
-
-
-def test_leads_manual():
-    data = {
-        "table": "Opportunities",
-        "start": START,
-        "end": END,
-    }
-    process(data)
+STATIC_TABLES = [
+    "Users",
+    "CustomFields",
+]
+INCREMENTAL_TALBES = [
+    "Leads",
+    "Opportunities",
+    "CustomActivities",
+]
 
 
-@pytest.mark.parametrize("table", ["CustomActivities", "Users", "CustomFields"])
-def test_auto(table):
+@pytest.mark.parametrize(
+    "table",
+    STATIC_TABLES,
+)
+def test_static(table):
     data = {
         "table": table,
+    }
+    process(data)
+
+
+@pytest.mark.parametrize(
+    "table",
+    INCREMENTAL_TALBES,
+)
+@pytest.mark.parametrize(
+    "start,end",
+    [
+        (None, None),
+        ("2021-08-01", "2021-08-31"),
+    ],
+    ids=[
+        "auto",
+        "manual",
+    ],
+)
+def test_incremental(table, start, end):
+    data = {
+        "table": table,
+        "start": start,
+        "end": end,
     }
     process(data)

@@ -18,7 +18,7 @@ def main(request):
     )
     results = job.run()
     response = {
-        "pipelines": "Wufoo",
+        "pipelines": "Close",
         "results": results,
     }
     print(response)
