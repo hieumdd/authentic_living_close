@@ -22,7 +22,7 @@ def test_leads_manual():
     process(data)
 
 
-@pytest.mark.parametrize("table", ["CustomActivities", "Users"])
+@pytest.mark.parametrize("table", ["CustomActivities", "Users", "CustomFields"])
 def test_auto(table):
     data = {
         "table": table,

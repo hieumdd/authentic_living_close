@@ -120,6 +120,8 @@ class Close(metaclass=ABCMeta):
             return CustomActivities()
         elif table == "Users":
             return Users()
+        elif table == "CustomFields":
+            return CustomFields()
         else:
             raise NotImplementedError(table)
 
@@ -322,7 +324,6 @@ class CustomActivities(Close):
     ]
 
     def __init__(self):
-        super().__init__()
         self.getter = SimpleGetter(self)
 
     def transform(self, rows):
@@ -448,8 +449,7 @@ class Opportunities(Close):
         self.getter = AsyncGetter(self)
 
     def transform(self, rows):
-        rows
-        rows = [
+        return [
             {
                 "id": row["id"],
                 "date_updated": row["date_updated"],
@@ -491,5 +491,62 @@ class Opportunities(Close):
             }
             for row in rows
         ]
-        
-        return rows
+
+
+class CustomFields(Close):
+    endpoint = "custom_activity"
+    table = "CustomFields"
+    keys = {
+        "p_key": ["id"],
+        "incre_key": "date_updated",
+    }
+    schema = [
+        {"name": "id", "type": "STRING"},
+        {"name": "name", "type": "STRING"},
+        {"name": "organization_id", "type": "STRING"},
+        {"name": "date_created", "type": "TIMESTAMP"},
+        {"name": "date_updated", "type": "TIMESTAMP"},
+        {"name": "api_create_only", "type": "BOOLEAN"},
+        {
+            "name": "fields",
+            "type": "RECORD",
+            "mode": "REPEATED",
+            "fields": [
+                {"name": "id", "type": "STRING"},
+                {"name": "name", "type": "STRING"},
+                {"name": "required", "type": "BOOLEAN"},
+                {"name": "type", "type": "STRING"},
+                {"name": "converting_to_type", "type": "STRING"},
+                {"name": "accepts_multiple_values", "type": "BOOLEAN"},
+                {"name": "is_share", "type": "BOOLEAN"},
+            ],
+        },
+    ]
+
+    def __init__(self):
+        self.getter = SimpleGetter(self)
+
+    def transform(self, rows):
+        return [
+            {
+                "id": row["id"],
+                "name": row["name"],
+                "organization_id": row["organization_id"],
+                "date_created": row["date_created"],
+                "date_updated": row["date_updated"],
+                "api_create_only": row["api_create_only"],
+                "fields": [
+                    {
+                        "id": field["id"],
+                        "name": field["name"],
+                        "required": field["required"],
+                        "type": field["type"],
+                        "converting_to_type": field["converting_to_type"],
+                        "accepts_multiple_values": field["accepts_multiple_values"],
+                        "is_share": field["is_shared"],
+                    }
+                    for field in row["fields"]
+                ],
+            }
+            for row in rows
+        ]
