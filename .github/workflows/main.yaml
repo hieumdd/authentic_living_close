@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
 
 env:
-  FUNCTIONS_NAME: f3brand_close
+  FUNCTIONS_NAME: authentic_living_close
   REGION: us-central1
 
 jobs:
@@ -32,4 +32,4 @@ jobs:
           --runtime=python38
           --trigger-http
           --service-account=${{ secrets.GCP_SA }}
-          --set-env-vars=API_KEY=${{ secrets.API_KEY }}
+          --set-env-vars=AUTH_KEY=${{ secrets.AUTH_KEY }}
